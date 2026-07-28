@@ -83,15 +83,21 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024).toFixed(1)} KB`;
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+const formatDate = (value: string) => {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+
+  // Keep the server-rendered text and the browser's first render identical.
+  // Intl output can vary by runtime even when locale and timeZone are fixed.
+  const koreaTime = new Date(timestamp + 9 * 60 * 60 * 1000);
+  const year = koreaTime.getUTCFullYear();
+  const month = String(koreaTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(koreaTime.getUTCDate()).padStart(2, '0');
+  const hour = String(koreaTime.getUTCHours()).padStart(2, '0');
+  const minute = String(koreaTime.getUTCMinutes()).padStart(2, '0');
+
+  return `${year}.${month}.${day} ${hour}:${minute}`;
+};
 
 const getRiskCellClass = (value: string) => {
   const text = value.trim();
