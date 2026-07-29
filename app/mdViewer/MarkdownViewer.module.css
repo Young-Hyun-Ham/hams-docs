@@ -39,6 +39,29 @@
   padding: 8px !important;
 }
 
+.folderItem {
+  display: block;
+  list-style: none;
+}
+
+.folderButton,
+.documentButton {
+  min-height: 38px;
+  border-radius: 6px !important;
+}
+
+.expandIcon {
+  flex: 0 0 auto;
+  margin-right: 3px;
+  color: #738196;
+}
+
+.folderIcon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  color: #d59a19;
+}
+
 .fileIcon {
   flex: 0 0 auto;
   margin-right: 10px;
@@ -60,9 +83,52 @@
   overflow-y: auto;
 }
 
-.documentHeader {
+.documentTabs {
   position: sticky;
   top: 0;
+  z-index: 12;
+  min-height: 48px;
+  border-bottom: 1px solid #dde3ea;
+  background: #f8fafc;
+}
+
+.documentTabs :global(.MuiTab-root) {
+  min-height: 48px;
+  max-width: 220px;
+  text-transform: none;
+}
+
+.tabLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.tabLabelText {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabCloseButton {
+  flex: 0 0 auto;
+  padding: 2px !important;
+  color: #64748b !important;
+}
+
+.tabCloseButton:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.documentHeader {
+  position: sticky;
+  top: 48px;
   z-index: 10;
   display: flex;
   align-items: center;
@@ -119,7 +185,7 @@
 .markdown h1,
 .markdown h2,
 .markdown h3 {
-  scroll-margin-top: 100px;
+  scroll-margin-top: 148px;
   color: #152238;
   line-height: 1.35;
 }
@@ -263,7 +329,7 @@
 
 .outline {
   position: sticky;
-  top: 100px;
+  top: 148px;
   padding: 14px 10px;
   border: 1px solid #e1e6ec;
   border-radius: 10px;

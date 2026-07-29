@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppBar,
   Box,
   Button,
   Chip,
+  Collapse,
   Divider,
   IconButton,
   InputAdornment,
@@ -14,6 +15,8 @@ import {
   ListItemButton,
   ListItemText,
   Paper,
+  Tab,
+  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -22,8 +25,12 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  Close,
   ContentCopy,
   DescriptionOutlined,
+  ExpandLess,
+  ExpandMore,
+  FolderOutlined,
   MenuBookOutlined,
   Search,
 } from '@mui/icons-material';
@@ -41,6 +48,102 @@ type Heading = {
   text: string;
   level: number;
   line: number;
+};
+
+type DocumentFolder = {
+  name: string;
+  path: string;
+  folders: DocumentFolder[];
+  documents: MarkdownDocument[];
+};
+
+const buildDocumentTree = (documents: MarkdownDocument[]): DocumentFolder => {
+  const root: DocumentFolder = {
+    name: '',
+    path: '',
+    folders: [],
+    documents: [],
+  };
+
+  documents.forEach((document) => {
+    const segments = document.relativePath.split('/');
+    const folderNames = segments.slice(0, -1);
+    let current = root;
+
+    folderNames.forEach((folderName) => {
+      const folderPath = current.path
+        ? `${current.path}/${folderName}`
+        : folderName;
+      let child = current.folders.find((folder) => folder.name === folderName);
+
+      if (!child) {
+        child = {
+          name: folderName,
+          path: folderPath,
+          folders: [],
+          documents: [],
+        };
+        current.folders.push(child);
+      }
+
+      current = child;
+    });
+
+    current.documents.push(document);
+  });
+
+  const sortFolder = (folder: DocumentFolder) => {
+    folder.folders.sort((left, right) =>
+      left.name.localeCompare(right.name, 'ko'),
+    );
+    folder.documents.sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath, 'ko'),
+    );
+    folder.folders.forEach(sortFolder);
+  };
+
+  sortFolder(root);
+  return root;
+};
+
+const getParentFolderPaths = (relativePath: string) => {
+  const segments = relativePath.split('/').slice(0, -1);
+  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
+};
+
+const resolveMarkdownLink = (currentPath: string, href?: string) => {
+  if (!href || href.startsWith('#') || /^[a-z][a-z\d+.-]*:/i.test(href)) {
+    return null;
+  }
+
+  const [rawPath, rawHash] = href.split('#', 2);
+  const pathWithoutQuery = rawPath.split('?', 1)[0];
+  if (!/\.md$/i.test(pathWithoutQuery)) return null;
+
+  let decodedPath = pathWithoutQuery;
+  try {
+    decodedPath = decodeURIComponent(pathWithoutQuery);
+  } catch {
+    // Keep the original path when the href contains malformed escapes.
+  }
+
+  const segments = decodedPath.startsWith('/')
+    ? []
+    : currentPath.split('/').slice(0, -1);
+
+  decodedPath
+    .replace(/^\/+/, '')
+    .split('/')
+    .forEach((segment) => {
+      if (!segment || segment === '.') return;
+      if (segment === '..') segments.pop();
+      else segments.push(segment);
+    });
+
+  return {
+    path: segments.join('/'),
+    hash: rawHash ? decodeURIComponent(rawHash) : '',
+  };
 };
 
 const createSlugger = () => {
@@ -125,9 +228,16 @@ export default function MarkdownViewer({
   const [selectedPath, setSelectedPath] = useState(
     documents[0]?.relativePath ?? '',
   );
+  const [openDocumentPaths, setOpenDocumentPaths] = useState<string[]>(
+    () => (documents[0]?.relativePath ? [documents[0].relativePath] : []),
+  );
   const [query, setQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [copied, setCopied] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    () => new Set(getParentFolderPaths(documents[0]?.relativePath ?? '')),
+  );
+  const mainRef = useRef<HTMLElement | null>(null);
 
   const filteredDocuments = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase('ko');
@@ -138,11 +248,17 @@ export default function MarkdownViewer({
         document.content.toLocaleLowerCase('ko').includes(keyword),
     );
   }, [documents, query]);
+  const documentTree = useMemo(
+    () => buildDocumentTree(filteredDocuments),
+    [filteredDocuments],
+  );
+  const isSearching = query.trim().length > 0;
 
   const selectedDocument =
-    documents.find((document) => document.relativePath === selectedPath) ??
-    documents[0] ??
-    null;
+    documents.find((document) => document.relativePath === selectedPath) ?? null;
+  const openDocuments = openDocumentPaths
+    .map((path) => documents.find((document) => document.relativePath === path))
+    .filter((document): document is MarkdownDocument => Boolean(document));
   const headings = useMemo(
     () => extractHeadings(selectedDocument?.content ?? ''),
     [selectedDocument],
@@ -153,6 +269,114 @@ export default function MarkdownViewer({
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
+
+  const toggleFolder = (folderPath: string) => {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderPath)) next.delete(folderPath);
+      else next.add(folderPath);
+      return next;
+    });
+  };
+
+  const openDocument = (relativePath: string, hash = '') => {
+    if (!documents.some((document) => document.relativePath === relativePath)) {
+      return;
+    }
+
+    setOpenDocumentPaths((current) =>
+      current.includes(relativePath) ? current : [...current, relativePath],
+    );
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      getParentFolderPaths(relativePath).forEach((path) => next.add(path));
+      return next;
+    });
+    setSelectedPath(relativePath);
+    setCopied(false);
+
+    window.requestAnimationFrame(() => {
+      if (hash) {
+        document.getElementById(hash)?.scrollIntoView({ block: 'start' });
+      } else {
+        mainRef.current?.scrollTo({ top: 0 });
+      }
+    });
+  };
+
+  const closeDocument = (relativePath: string) => {
+    const closingIndex = openDocumentPaths.indexOf(relativePath);
+    if (closingIndex < 0) return;
+
+    const nextPaths = openDocumentPaths.filter((path) => path !== relativePath);
+    setOpenDocumentPaths(nextPaths);
+
+    if (selectedPath === relativePath) {
+      const nextSelectedPath =
+        nextPaths[closingIndex] ?? nextPaths[closingIndex - 1] ?? '';
+      setSelectedPath(nextSelectedPath);
+      setCopied(false);
+      mainRef.current?.scrollTo({ top: 0 });
+    }
+  };
+
+  const renderDocumentTree = (folder: DocumentFolder, depth = 0) => (
+    <>
+      {folder.folders.map((childFolder) => {
+        const expanded = isSearching || expandedFolders.has(childFolder.path);
+
+        return (
+          <Box key={childFolder.path} component="li" className={styles.folderItem}>
+            <ListItemButton
+              className={styles.folderButton}
+              sx={{ pl: 1.25 + depth * 2 }}
+              onClick={() => toggleFolder(childFolder.path)}
+              aria-expanded={expanded}
+            >
+              {expanded ? (
+                <ExpandLess fontSize="small" className={styles.expandIcon} />
+              ) : (
+                <ExpandMore fontSize="small" className={styles.expandIcon} />
+              )}
+              <FolderOutlined fontSize="small" className={styles.folderIcon} />
+              <ListItemText
+                primary={childFolder.name}
+                slotProps={{
+                  primary: { sx: { fontSize: 13, fontWeight: 700 } },
+                }}
+              />
+            </ListItemButton>
+            <Collapse in={expanded} timeout="auto" unmountOnExit>
+              <List dense disablePadding component="ul">
+                {renderDocumentTree(childFolder, depth + 1)}
+              </List>
+            </Collapse>
+          </Box>
+        );
+      })}
+
+      {folder.documents.map((document) => (
+        <ListItemButton
+          key={document.relativePath}
+          component="li"
+          className={styles.documentButton}
+          sx={{ pl: 4.5 + depth * 2 }}
+          selected={document.relativePath === selectedDocument?.relativePath}
+          onClick={() => openDocument(document.relativePath)}
+        >
+          <DescriptionOutlined fontSize="small" className={styles.fileIcon} />
+          <ListItemText
+            primary={document.name}
+            secondary={document.relativePath}
+            slotProps={{
+              primary: { sx: { fontSize: 13, fontWeight: 600 } },
+              secondary: { sx: { fontSize: 10 }, noWrap: true },
+            }}
+          />
+        </ListItemButton>
+      ))}
+    </>
+  );
 
   const headingComponent = (level: 1 | 2 | 3) => {
     const HeadingComponent = ({
@@ -220,44 +444,59 @@ export default function MarkdownViewer({
           </Box>
           <Divider />
           <List dense disablePadding className={styles.documentList}>
-            {filteredDocuments.map((document) => (
-              <ListItemButton
-                key={document.relativePath}
-                selected={document.relativePath === selectedDocument?.relativePath}
-                onClick={() => {
-                  setSelectedPath(document.relativePath);
-                  setCopied(false);
-                }}
-              >
-                <DescriptionOutlined fontSize="small" className={styles.fileIcon} />
-                <ListItemText
-                  primary={document.name}
-                  secondary={document.relativePath}
-                  slotProps={{
-                    primary: {
-                      sx: { fontSize: 14, fontWeight: 600 },
-                    },
-                    secondary: {
-                      sx: { fontSize: 11 },
-                      noWrap: true,
-                    },
-                  }}
-                />
-              </ListItemButton>
-            ))}
+            {renderDocumentTree(documentTree)}
             {!filteredDocuments.length && (
               <Box className={styles.emptyList}>검색 결과가 없습니다.</Box>
             )}
           </List>
         </Paper>
 
-        <Box component="main" className={styles.main}>
+        <Box component="main" className={styles.main} ref={mainRef}>
           {!selectedDocument ? (
             <Alert severity="info">
-              docs 폴더에 표시할 Markdown 파일이 없습니다.
+              {documents.length
+                ? '열린 문서가 없습니다. 문서 목록에서 파일을 선택하세요.'
+                : 'docs 폴더에 표시할 Markdown 파일이 없습니다.'}
             </Alert>
           ) : (
             <>
+              <Paper square elevation={0} className={styles.documentTabs}>
+                <Tabs
+                  value={selectedDocument.relativePath}
+                  onChange={(_, relativePath: string) => openDocument(relativePath)}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                  aria-label="열린 문서"
+                >
+                  {openDocuments.map((document) => (
+                    <Tab
+                      key={document.relativePath}
+                      component="div"
+                      value={document.relativePath}
+                      label={
+                        <Box component="span" className={styles.tabLabel}>
+                          <Box component="span" className={styles.tabLabelText}>
+                            {document.name}
+                          </Box>
+                          <IconButton
+                            size="small"
+                            className={styles.tabCloseButton}
+                            aria-label={`${document.name} 탭 닫기`}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              closeDocument(document.relativePath);
+                            }}
+                          >
+                            <Close fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      }
+                      title={document.relativePath}
+                    />
+                  ))}
+                </Tabs>
+              </Paper>
               <Paper square elevation={0} className={styles.documentHeader}>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="h6" sx={{ fontWeight: 700 }} noWrap>
@@ -302,11 +541,42 @@ export default function MarkdownViewer({
                           h1: headingComponent(1),
                           h2: headingComponent(2),
                           h3: headingComponent(3),
-                          a: ({ href, children }) => (
-                            <a href={href} target="_blank" rel="noreferrer">
-                              {children}
-                            </a>
-                          ),
+                          a: ({ href, children }) => {
+                            const markdownLink = resolveMarkdownLink(
+                              selectedDocument.relativePath,
+                              href,
+                            );
+                            const canOpenInViewer = Boolean(
+                              markdownLink &&
+                                documents.some(
+                                  (document) =>
+                                    document.relativePath === markdownLink.path,
+                                ),
+                            );
+
+                            if (markdownLink && canOpenInViewer) {
+                              return (
+                                <a
+                                  href={href}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    openDocument(
+                                      markdownLink.path,
+                                      markdownLink.hash,
+                                    );
+                                  }}
+                                >
+                                  {children}
+                                </a>
+                              );
+                            }
+
+                            return (
+                              <a href={href} target="_blank" rel="noreferrer">
+                                {children}
+                              </a>
+                            );
+                          },
                           code: ({ className, children, node, ...props }) => (
                             <code className={className} {...props} data-line={node?.position?.start.line}>
                               {children}
