@@ -235,7 +235,7 @@ export default function MarkdownViewer({
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [copied, setCopied] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    () => new Set(getParentFolderPaths(documents[0]?.relativePath ?? '')),
+    () => new Set(getParentFolderPaths('')),
   );
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -360,7 +360,9 @@ export default function MarkdownViewer({
           key={document.relativePath}
           component="li"
           className={styles.documentButton}
-          sx={{ pl: 4.5 + depth * 2 }}
+          sx={{ 
+            pl: depth === 0 ? 1 : 4.5 + depth * 1,  
+          }}
           selected={document.relativePath === selectedDocument?.relativePath}
           onClick={() => openDocument(document.relativePath)}
         >
