@@ -27,11 +27,13 @@ import {
 import {
   Close,
   ContentCopy,
+  DeleteSweepOutlined,
   DescriptionOutlined,
   ExpandLess,
   ExpandMore,
   FolderOutlined,
   MenuBookOutlined,
+  SaveOutlined,
   Search,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
@@ -221,10 +223,11 @@ const getRiskCellClass = (value: string) => {
 };
 
 export default function MarkdownViewer({
-  documents,
+  documents: initialDocuments,
 }: {
   documents: MarkdownDocument[];
 }) {
+  const [documents, setDocuments] = useState(initialDocuments);
   const [selectedPath, setSelectedPath] = useState(
     documents[0]?.relativePath ?? '',
   );
@@ -234,6 +237,9 @@ export default function MarkdownViewer({
   const [query, setQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [copied, setCopied] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set(getParentFolderPaths('')),
   );
@@ -270,6 +276,59 @@ export default function MarkdownViewer({
     window.setTimeout(() => setCopied(false), 1500);
   };
 
+  const saveDocument = async () => {
+    if (!selectedDocument || saving) return;
+
+    const content = drafts[selectedDocument.relativePath] ?? selectedDocument.content;
+    if (content === selectedDocument.content) return;
+
+    setSaving(true);
+    setSaveMessage('');
+
+    try {
+      const response = await fetch('/api/markdown', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relativePath: selectedDocument.relativePath,
+          content,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        modifiedAt?: string;
+        size?: number;
+      };
+
+      if (!response.ok) throw new Error(result.error ?? '문서를 저장하지 못했습니다.');
+
+      setDocuments((current) =>
+        current.map((document) =>
+          document.relativePath === selectedDocument.relativePath
+            ? {
+                ...document,
+                content,
+                modifiedAt: result.modifiedAt ?? document.modifiedAt,
+                size: result.size ?? new Blob([content]).size,
+              }
+            : document,
+        ),
+      );
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[selectedDocument.relativePath];
+        return next;
+      });
+      setSaveMessage('저장되었습니다.');
+    } catch (error) {
+      setSaveMessage(
+        error instanceof Error ? error.message : '문서를 저장하지 못했습니다.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleFolder = (folderPath: string) => {
     setExpandedFolders((current) => {
       const next = new Set(current);
@@ -294,6 +353,7 @@ export default function MarkdownViewer({
     });
     setSelectedPath(relativePath);
     setCopied(false);
+    setSaveMessage('');
 
     window.requestAnimationFrame(() => {
       if (hash) {
@@ -316,8 +376,17 @@ export default function MarkdownViewer({
         nextPaths[closingIndex] ?? nextPaths[closingIndex - 1] ?? '';
       setSelectedPath(nextSelectedPath);
       setCopied(false);
+      setSaveMessage('');
       mainRef.current?.scrollTo({ top: 0 });
     }
+  };
+
+  const closeOtherDocuments = () => {
+    if (!selectedPath) return;
+    setOpenDocumentPaths([selectedPath]);
+    setCopied(false);
+    setSaveMessage('');
+    mainRef.current?.scrollTo({ top: 0 });
   };
 
   const renderDocumentTree = (folder: DocumentFolder, depth = 0) => (
@@ -498,6 +567,14 @@ export default function MarkdownViewer({
                     />
                   ))}
                 </Tabs>
+                <Button
+                  className={styles.closeAllTabsButton}
+                  startIcon={<DeleteSweepOutlined fontSize="small" />}
+                  disabled={openDocumentPaths.length <= 1}
+                  onClick={closeOtherDocuments}
+                >
+                  탭닫기
+                </Button>
               </Paper>
               <Paper square elevation={0} className={styles.documentHeader}>
                 <Box sx={{ minWidth: 0 }}>
@@ -510,6 +587,26 @@ export default function MarkdownViewer({
                   </Typography>
                 </Box>
                 <Box className={styles.headerActions}>
+                  {saveMessage && viewMode === 'source' && (
+                    <Typography variant="caption" color="text.secondary">
+                      {saveMessage}
+                    </Typography>
+                  )}
+                  {viewMode === 'source' && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<SaveOutlined />}
+                      disabled={
+                        saving ||
+                        (drafts[selectedDocument.relativePath] ??
+                          selectedDocument.content) === selectedDocument.content
+                      }
+                      onClick={() => void saveDocument()}
+                    >
+                      {saving ? '저장 중...' : '저장'}
+                    </Button>
+                  )}
                   <ToggleButtonGroup
                     exclusive
                     size="small"
@@ -532,9 +629,29 @@ export default function MarkdownViewer({
               <Box className={styles.readingArea}>
                 <Paper elevation={0} className={styles.documentPaper}>
                   {viewMode === 'source' ? (
-                    <Box component="pre" className={styles.source}>
-                      {selectedDocument.content}
-                    </Box>
+                    <Box
+                      component="textarea"
+                      className={styles.sourceEditor}
+                      aria-label={`${selectedDocument.name} 원문 편집`}
+                      value={
+                        drafts[selectedDocument.relativePath] ??
+                        selectedDocument.content
+                      }
+                      onChange={(event) => {
+                        setDrafts((current) => ({
+                          ...current,
+                          [selectedDocument.relativePath]: event.target.value,
+                        }));
+                        setSaveMessage('');
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+                          event.preventDefault();
+                          void saveDocument();
+                        }
+                      }}
+                      spellCheck={false}
+                    />
                   ) : (
                     <article className={styles.markdown}>
                       <ReactMarkdown

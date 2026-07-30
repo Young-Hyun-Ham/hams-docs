@@ -87,9 +87,16 @@
   position: sticky;
   top: 0;
   z-index: 12;
+  display: flex;
+  align-items: center;
   min-height: 48px;
   border-bottom: 1px solid #dde3ea;
   background: #f8fafc;
+}
+
+.documentTabs :global(.MuiTabs-root) {
+  min-width: 0;
+  flex: 1;
 }
 
 .documentTabs :global(.MuiTab-root) {
@@ -124,6 +131,23 @@
 .tabCloseButton:hover {
   background: #e2e8f0 !important;
   color: #0f172a !important;
+}
+
+.closeAllTabsButton {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-width: max-content !important;
+  padding: 0 16px !important;
+  border-left: 1px solid #dde3ea !important;
+  border-radius: 0 !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+  text-transform: none !important;
+}
+
+.closeAllTabsButton:hover {
+  background: #eef2f6 !important;
+  color: #b42318 !important;
 }
 
 .documentHeader {
@@ -165,13 +189,26 @@
   border-radius: 12px;
 }
 
-.source {
+.sourceEditor {
+  display: block;
+  width: 100%;
+  min-height: calc(100vh - 330px);
   overflow: auto;
   margin: 0;
-  color: #243247;
+  padding: 18px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  resize: vertical;
+  background: #172033;
+  color: #edf3fa;
   font: 13px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.sourceEditor:focus {
+  border-color: #5e6ad2;
+  outline: 2px solid rgb(94 106 210 / 20%);
 }
 
 .markdown {
